@@ -19,9 +19,6 @@
 
 package com.lushprojects.circuitjs1.client;
 
-//import java.awt.*;
-//import java.util.StringTokenizer;
-
 class TransLineElm extends CircuitElm {
     double delay, imped;
     double voltageL[], voltageR[];
@@ -207,7 +204,8 @@ class TransLineElm extends CircuitElm {
     void getInfo(String arr[]) {
 	arr[0] = "transmission line";
 	arr[1] = getUnitText(imped, sim.ohmString);
-	arr[2] = "length = " + getUnitText(2.9979e8*delay, "m");
+	// use velocity factor for RG-58 cable (65%)
+	arr[2] = "length = " + getUnitText(.65*2.9979e8*delay, "m");
 	arr[3] = "delay = " + getUnitText(delay, "s");
     }
     public EditInfo getEditInfo(int n) {
@@ -226,6 +224,16 @@ class TransLineElm extends CircuitElm {
 	    imped = ei.value;
 	    reset();
 	}
+    }
+    
+    double getCurrentIntoNode(int n) {
+	if (n == 0)
+	    return current1;
+	if (n == 2)
+	    return -current1;
+	if (n == 3)
+	    return -current2;
+	return current2;
     }
 }
 

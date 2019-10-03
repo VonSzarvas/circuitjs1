@@ -19,9 +19,6 @@
 
 package com.lushprojects.circuitjs1.client;
 
-//import java.awt.*;
-//import java.util.StringTokenizer;
-
 // Silicon-Controlled Rectifier
 // 3 nodes, 1 internal node
 // 0 = anode, 1 = cathode, 2 = gate
@@ -34,10 +31,13 @@ class SCRElm extends CircuitElm {
     final int cnode = 1;
     final int gnode = 2;
     final int inode = 3;
+    final int FLAG_GATE_FIX = 1;
     Diode diode;
+    
     public SCRElm(int xx, int yy) {
 	super(xx, yy);
 	setDefaults();
+	flags |= FLAG_GATE_FIX;
 	setup();
     }
     public SCRElm(int xa, int ya, int xb, int yb, int f,
@@ -64,7 +64,7 @@ class SCRElm extends CircuitElm {
     }
     void setup() {
 	diode = new Diode(sim);
-	diode.setup(.8, 0);
+	diode.setupForDefaultModel();
     }
     boolean nonLinear() { return true; }
     void reset() {
@@ -86,14 +86,23 @@ class SCRElm extends CircuitElm {
     Polygon poly;
     Point cathode[], gate[];
 	
+    boolean applyGateFix() { return (flags & FLAG_GATE_FIX) != 0; }
+    
     void setPoints() {
 	super.setPoints();
 	int dir = 0;
 	if (abs(dx) > abs(dy)) {
 	    dir = -sign(dx)*sign(dy);
+	    
+	    // correct dn (length) or else calcLeads() may get confused, and also gate may be drawn weirdly.  Can't do this with old circuits or it may
+	    // break them
+	    if (applyGateFix())
+		dn = abs(dx);
 	    point2.y = point1.y;
 	} else {
 	    dir = sign(dy)*sign(dx);
+	    if (applyGateFix())
+		dn = abs(dy);
 	    point2.x = point1.x;
 	}
 	if (dir == 0)
@@ -115,6 +124,8 @@ class SCRElm extends CircuitElm {
 	}
 	interpPoint(lead2, point2, gate[0], gatelen/leadlen, gatelen*dir);
 	interpPoint(lead2, point2, gate[1], gatelen/leadlen, sim.gridSize*2*dir);
+	gate[1].x = sim.snapGrid(gate[1].x);
+	gate[1].y = sim.snapGrid(gate[1].y);
     }
 	
     void draw(Graphics g) {
@@ -127,16 +138,18 @@ class SCRElm extends CircuitElm {
 	draw2Leads(g);
 
 	// draw arrow thingy
-	setPowerColor(g, true);
 	setVoltageColor(g, v1);
+	setPowerColor(g, true);
 	g.fillPolygon(poly);
 
-	// draw thing arrow is pointing to
-	setVoltageColor(g, v2);
-	drawThickLine(g, cathode[0], cathode[1]);
-
+	setVoltageColor(g, volts[gnode]);
 	drawThickLine(g, lead2,   gate[0]);
 	drawThickLine(g, gate[0], gate[1]);
+	
+	// draw thing arrow is pointing to
+	setVoltageColor(g, v2);
+	setPowerColor(g, true);
+	drawThickLine(g, cathode[0], cathode[1]);
 	
 	curcount_a = updateDotCount(ia, curcount_a);
 	curcount_c = updateDotCount(ic, curcount_c);
@@ -147,9 +160,26 @@ class SCRElm extends CircuitElm {
 	    drawDots(g, gate[1], gate[0], curcount_g);
 	    drawDots(g, gate[0], lead2, curcount_g+distance(gate[1], gate[0]));
 	}
+	
+	if ((needsHighlight() || sim.dragElm == this) && point1.x == point2.x && point2.y > point1.y) {
+	    g.setColor(Color.white);
+	    int ds = sign(dx);
+	    g.drawString("C", lead2.x+((ds < 0) ? 5 : -15), lead2.y+12);
+	    g.drawString("A", lead1.x+5, lead1.y-4); // x+6 if ds=1, -12 if -1
+	    g.drawString("G", gate[0].x, gate[0].y+12);
+	}
+	
 	drawPosts(g);
     }
 	
+    double getCurrentIntoNode(int n) {
+	if (n == anode)
+	    return -ia;
+	if (n == cnode)
+	    return -ic;
+	return -ig;
+    }
+
     
     Point getPost(int n) {
 	return (n == 0) ? point1 : (n == 1) ? point2 : gate[1];
@@ -197,6 +227,7 @@ class SCRElm extends CircuitElm {
 	arr[3] = "Vac = " + getVoltageText(vac);
 	arr[4] = "Vag = " + getVoltageText(vag);
 	arr[5] = "Vgc = " + getVoltageText(vgc);
+        arr[6] = "P = " + getUnitText(getPower(), "W");
     }
     void calculateCurrent() {
 	ic = (volts[cnode]-volts[gnode])/cresistance;

@@ -19,9 +19,6 @@
 
 package com.lushprojects.circuitjs1.client;
 
-//import java.awt.*;
-//import java.util.StringTokenizer;
-
 // 0 = switch
 // 1 = switch end 1
 // 2 = switch end 2
@@ -102,6 +99,7 @@ class RelayElm extends CircuitElm {
 	    drawThickLine(g, coilLeads[i], coilPosts[i]);
 	}
 	int x = ((flags & FLAG_SWAP_COIL) != 0) ? 1 : 0;
+	setPowerColor(g, coilCurrent * (volts[nCoil1]-volts[nCoil2]));
 	drawCoil(g, dsign*6, coilLeads[x], coilLeads[1-x],
 		 volts[nCoil1+x], volts[nCoil2-x]);
 
@@ -151,6 +149,21 @@ class RelayElm extends CircuitElm {
 	adjustBbox(swpoles[poleCount-1][0], swposts[poleCount-1][1]); // XXX
     }
 	
+    double getCurrentIntoNode(int n) {
+	if (n < 3*poleCount) {
+	    int p = n/3;
+	    int k = n%3;
+	    if (k == 0)
+		return -switchCurrent[p];
+	    if (k == 1+i_position)
+		return switchCurrent[p];
+	    return 0;
+	}
+	if (n == 3*poleCount)
+	    return -coilCurrent;
+	return coilCurrent;
+    }
+
     void setPoints() {
 	super.setPoints();
 	setupPoles();

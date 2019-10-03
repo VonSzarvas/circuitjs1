@@ -19,9 +19,6 @@
 
 package com.lushprojects.circuitjs1.client;
 
-//import java.awt.*;
-//import java.util.StringTokenizer;
-
 class AnalogSwitch2Elm extends AnalogSwitchElm {
     public AnalogSwitch2Elm(int xx, int yy) {
 	super(xx, yy);
@@ -109,5 +106,14 @@ class AnalogSwitch2Elm extends AnalogSwitchElm {
 	arr[0] = "analog switch (SPDT)";
 	arr[1] = "I = " + getCurrentDText(getCurrent());
     }
+    
+    double getCurrentIntoNode(int n) {
+	if (n == 0)
+	    return -current;
+	int position = (open) ? 1 : 0;
+	if (n == position+1)
+	    return current;
+	return 0;
+    }	
 }
 

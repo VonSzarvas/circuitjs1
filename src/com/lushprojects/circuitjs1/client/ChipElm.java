@@ -19,11 +19,6 @@
 
 package com.lushprojects.circuitjs1.client;
 
-//import java.awt.*;
-//import java.util.StringTokenizer;
-
-import com.google.gwt.canvas.dom.client.TextMetrics;
-
     abstract class ChipElm extends CircuitElm {
 	int csize, cspc, cspc2;
 	int bits;
@@ -33,7 +28,7 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	public ChipElm(int xx, int yy) {
 	    super(xx, yy);
 	    if (needsBits())
-		bits = (this instanceof DecadeElm) ? 10 : 4;
+		bits = (this instanceof RingCounterElm) ? 10 : 4;
 	    noDiagonal = true;
 	    setupPins();
 	    setSize(sim.smallGridCheckItem.getState() ? 1 : 2);
@@ -48,7 +43,9 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    setSize((f & FLAG_SMALL) != 0 ? 1 : 2);
 	    int i;
 	    for (i = 0; i != getPostCount(); i++) {
-		if (pins[i].state) {
+		if (pins == null)
+		    volts[i] = new Double(st.nextToken()).doubleValue();
+		else if (pins[i].state) {
 		    volts[i] = new Double(st.nextToken()).doubleValue();
 		    pins[i].value = volts[i] > 2.5;
 		}
@@ -70,9 +67,9 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    int i;
 	    Font oldfont = g.getFont();
 	    Font f = new Font("SansSerif", 0, 10*csize);
-	    g.setFont(f);
 //	    FontMetrics fm = g.getFontMetrics();
 	    for (i = 0; i != getPostCount(); i++) {
+		g.setFont(f);
 		Pin p = pins[i];
 		setVoltageColor(g, volts[i]);
 		Point a = p.post;
@@ -87,23 +84,32 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 		    g.setColor(lightGrayColor);
 		    drawThickCircle(g, p.bubbleX, p.bubbleY, 3);
 		}
-		g.setColor(whiteColor);
-//		int sw = fm.stringWidth(p.text);
-		int sw=(int)g.context.measureText(p.text).getWidth();
-		int asc=(int)g.currentFontSize;
-		g.drawString(p.text, p.textloc.x-sw/2,
-			     p.textloc.y+asc/2);
-		if (p.lineOver) {
-		    int ya = p.textloc.y-asc/2;
-		    g.drawLine(p.textloc.x-sw/2, ya, p.textloc.x+sw/2, ya);
+		g.setColor(p.selected ? selectColor : whiteColor);
+		int fsz = 10*csize;
+		while (true) {
+		    int sw=(int)g.context.measureText(p.text).getWidth();
+		    // scale font down if it's too big
+		    if (sw > 10*csize) {
+			fsz -= 2;
+			Font f2 = new Font("SansSerif", 0, fsz);
+			g.setFont(f2);
+			continue;
+		    }
+		    int asc=(int)g.currentFontSize;
+		    g.drawString(p.text, p.textloc.x-sw/2,
+			    p.textloc.y+asc/2);
+		    if (p.lineOver) {
+			int ya = p.textloc.y-asc/2;
+			g.drawLine(p.textloc.x-sw/2, ya, p.textloc.x+sw/2, ya);
+		    }
+		    break;
 		}
 	    }
 	    g.setColor(needsHighlight() ? selectColor : lightGrayColor);
 	    drawThickPolygon(g, rectPointsX, rectPointsY, 4);
 	    if (clockPointsX != null)
 		g.drawPolyline(clockPointsX, clockPointsY, 3);
-	    for (i = 0; i != getPostCount(); i++)
-		drawPost(g, pins[i].post.x, pins[i].post.y, nodes[i]);
+	    drawPosts(g);
 	    g.setFont(oldfont);
 	}
 	int rectPointsX[], rectPointsY[];
@@ -122,6 +128,7 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    setPoints();
 	}
 	void setPoints() {
+	    clockPointsX = null;
 	    if (x2-x > sizeX*cspc2 && this == sim.dragElm)
 		setSize(2);
 	    int hs = cspc;
@@ -144,6 +151,45 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 		}
 	    }
 	}
+	
+	// see if we can move pin to position xp, yp, and return the new position
+	boolean getPinPos(int xp, int yp, int pin, int pos[]) {
+	    int x0 = x+cspc2; int y0 = y;
+	    int xr = x0-cspc;
+	    int yr = y0-cspc;
+	    double xd = (xp-xr)/(double)cspc2 - .5;
+	    double yd = (yp-yr)/(double)cspc2 - .5;
+	    if (xd < .25 && yd > 0 && yd < sizeY-1) {
+		pos[0] = (int) Math.max(Math.round(yd), 0);
+		pos[1] = SIDE_W;
+	    } else if (xd > sizeX-.75) {
+		pos[0] = (int) Math.min(Math.round(yd), sizeY-1);
+		pos[1] = SIDE_E;
+	    } else if (yd < .25) {
+		pos[0] = (int) Math.max(Math.round(xd), 0);
+		pos[1] = SIDE_N;
+	    } else if (yd > sizeY-.75) {
+		pos[0] = (int) Math.min(Math.round(xd), sizeX-1);
+		pos[1] = SIDE_S;
+	    } else
+		return false;
+	    
+	    if (pos[0] < 0)
+		return false;
+	    if ((pos[1] == SIDE_N || pos[1] == SIDE_S) && pos[0] >= sizeX)
+		return false;
+	    if ((pos[1] == SIDE_W || pos[1] == SIDE_E) && pos[0] >= sizeY)
+		return false;
+		
+	    for (int i = 0; i != getPostCount(); i++) {
+		if (pin == i)
+		    continue;
+		if (pins[i].overlaps(pos[0], pos[1]))
+		    return false;
+	    }
+	    return true;
+	}
+	
 	Point getPost(int n) {
 	    return pins[n].post;
 	}
@@ -194,7 +240,6 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	}
 	
 	String dump() {
-	    int t = getDumpType();
 	    String s = super.dump();
 	    if (needsBits())
 		s += " " + bits;
@@ -237,6 +282,10 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    return pins[n1].output;
 	}
 	
+	double getCurrentIntoNode(int n) {
+	    return pins[n].current;
+	}
+	
 	public EditInfo getEditInfo(int n) {
 	    if (n == 0) {
 		EditInfo ei = new EditInfo("", 0, -1, -1);
@@ -267,10 +316,11 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    }
 	}
 
-	final int SIDE_N = 0;
-	final int SIDE_S = 1;
-	final int SIDE_W = 2;
-	final int SIDE_E = 3;
+	static final int SIDE_N = 0;
+	static final int SIDE_S = 1;
+	static final int SIDE_W = 2;
+	static final int SIDE_E = 3;
+	
 	class Pin {
 	    Pin(int p, int s, String t) {
 		pos = p; side = s; text = t;
@@ -279,7 +329,7 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 	    Point textloc;
 	    int pos, side, voltSource, bubbleX, bubbleY;
 	    String text;
-	    boolean lineOver, bubble, clock, output, value, state;
+	    boolean lineOver, bubble, clock, output, value, state, selected;
 	    double curcount, current;
 	    void setPoint(int px, int py, int dx, int dy, int dax, int day,
 			  int sx, int sy) {
@@ -314,6 +364,26 @@ import com.google.gwt.canvas.dom.client.TextMetrics;
 		    clockPointsX[2] = xa+dax*cspc+dx*cspc/2;
 		    clockPointsY[2] = ya+day*cspc+dy*cspc/2;
 		}
+	    }
+	    
+	    // convert position, side to a grid position (0=top left) so we can detect overlaps
+	    int toGrid(int p, int s) {
+		if (s == SIDE_N)
+		    return p;
+		if (s == SIDE_S)
+		    return p+sizeX*(sizeY-1);
+		if (s == SIDE_W)
+		    return p*sizeX;
+		if (s == SIDE_E)
+		    return p*sizeX+sizeX-1;
+		return -1;
+	    }
+	    
+	    boolean overlaps(int p, int s) {
+		int g = toGrid(p, s);
+		if (g == -1)
+		    return true;
+		return toGrid(pos, side) == g;
 	    }
 	}
     }

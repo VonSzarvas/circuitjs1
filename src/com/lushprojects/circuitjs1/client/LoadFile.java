@@ -20,14 +20,8 @@
 package com.lushprojects.circuitjs1.client;
 
 import com.google.gwt.user.client.ui.FileUpload;
-import com.google.gwt.core.client.GWT;
-import com.google.gwt.event.dom.client.ClickEvent;
-import com.google.gwt.event.dom.client.ClickHandler;
 import com.google.gwt.event.dom.client.ChangeEvent;
 import com.google.gwt.event.dom.client.ChangeHandler;
-import com.google.gwt.event.dom.client.ContextMenuEvent;
-
-
 
 public class LoadFile extends FileUpload implements  ChangeHandler {
 	
@@ -38,9 +32,11 @@ public class LoadFile extends FileUpload implements  ChangeHandler {
 			return !!($wnd.File && $wnd.FileReader);
 		 }-*/;
 	
-	static public void doLoadCallback(String s) {
-		sim.readSetup(s, false);
+	static public void doLoadCallback(String s, String t) {
+		sim.pushUndo();
+		sim.readSetup(s, true);
 		sim.createNewLoadFile();
+		sim.setCircuitTitle(t);
 	}
 	
 	LoadFile(CirSim s) {
@@ -68,11 +64,11 @@ public class LoadFile extends FileUpload implements  ChangeHandler {
 		/*-{
 			var oFiles = $doc.getElementById("LoadFileElement").files,
     		nFiles = oFiles.length;
-    		if (nFiles>=1 && oFiles[0].size<32000) {
+    		if (nFiles>=1 && oFiles[0].size<128000) {
         		var reader = new FileReader();
     			reader.onload = function(e) {
       				var text = reader.result;
-      				@com.lushprojects.circuitjs1.client.LoadFile::doLoadCallback(Ljava/lang/String;)(text);
+      				@com.lushprojects.circuitjs1.client.LoadFile::doLoadCallback(Ljava/lang/String;Ljava/lang/String;)(text, oFiles[0].name);
         		};
 
     			reader.readAsText(oFiles[0]);

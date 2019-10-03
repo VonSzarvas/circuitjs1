@@ -19,12 +19,13 @@
 
 package com.lushprojects.circuitjs1.client;
 
-import com.google.gwt.i18n.client.NumberFormat;
-
     class TransistorElm extends CircuitElm {
+	// node 0 = base
+	// node 1 = collector
+	// node 2 = emitter
 	int pnp;
 	double beta;
-	double fgain;
+	double fgain, inv_fgain;
 	double gmin;
 	final int FLAG_FLIP = 1;
 	TransistorElm(int xx, int yy, boolean pnpflag) {
@@ -51,6 +52,7 @@ import com.google.gwt.i18n.client.NumberFormat;
 	void setup() {
 	    vcrit = vt * Math.log(vt/(Math.sqrt(2)*leakage));
 	    fgain = beta/(beta+1);
+	    inv_fgain = 1 / fgain;
 	    noDiagonal = true;
 	}
 	boolean nonLinear() { return true; }
@@ -149,9 +151,11 @@ import com.google.gwt.i18n.client.NumberFormat;
 	}
 	
 	static final double leakage = 1e-13; // 1e-6;
-	static final double vt = .025;
+	// Electron thermal voltage at SPICE's default temperature of 27 C (300.15 K):
+	static final double vt = 0.025865;
 	static final double vdcoef = 1/vt;
 	static final double rgain = .5;
+	static final double inv_rgain = 1 / rgain;
 	double vcrit;
 	double lastvbc, lastvbe;
 	double limitStep(double vnew, double vold) {
@@ -185,14 +189,18 @@ import com.google.gwt.i18n.client.NumberFormat;
 	    if (Math.abs(vbc-lastvbc) > .01 || // .01
 		Math.abs(vbe-lastvbe) > .01)
 		sim.converged = false;
-	    gmin = 0;
+	    // To prevent a possible singular matrix, put a tiny conductance in parallel
+	    // with each P-N junction.
+	    gmin = leakage * 0.01;
 	    if (sim.subIterations > 100) {
 		// if we have trouble converging, put a conductance in parallel with all P-N junctions.
 		// Gradually increase the conductance value for each iteration.
-		gmin = Math.exp(-9*Math.log(10)*(1-sim.subIterations/3000.));
+		gmin = Math.exp(-9*Math.log(10)*(1-sim.subIterations/300.));
 		if (gmin > .1)
 		    gmin = .1;
+//		sim.console("gmin " + gmin + " vbc " + vbc + " vbe " + vbe);
 	    }
+	    
 	    //System.out.print("T " + vbc + " " + vbe + "\n");
 	    vbc = pnp*limitStep(pnp*vbc, pnp*lastvbc);
 	    vbe = pnp*limitStep(pnp*vbe, pnp*lastvbe);
@@ -203,48 +211,58 @@ import com.google.gwt.i18n.client.NumberFormat;
 	    /*if (expbc > 1e13 || Double.isInfinite(expbc))
 	      expbc = 1e13;*/
 	    double expbe = Math.exp(vbe*pcoef);
-	    if (expbe < 1)
-		expbe = 1;
 	    /*if (expbe > 1e13 || Double.isInfinite(expbe))
 	      expbe = 1e13;*/
-	    ie = pnp*leakage*(-(expbe-1)+rgain*(expbc-1));
-	    ic = pnp*leakage*(fgain*(expbe-1)-(expbc-1));
+	    ie = pnp*leakage*(-inv_fgain*(expbe-1)+(expbc-1));
+	    ic = pnp*leakage*((expbe-1)-inv_rgain*(expbc-1));
 	    ib = -(ie+ic);
 	    //System.out.println("gain " + ic/ib);
 	    //System.out.print("T " + vbc + " " + vbe + " " + ie + " " + ic + "\n");
-	    double gee = -leakage*vdcoef*expbe;
-	    double gec = rgain*leakage*vdcoef*expbc;
+	    double gee = -leakage*vdcoef*expbe*inv_fgain;
+	    double gec = leakage*vdcoef*expbc;
 	    double gce = -gee*fgain;
-	    double gcc = -gec*(1/rgain);
+	    double gcc = -gec*inv_rgain;
 
-	    /*System.out.print("gee = " + gee + "\n");
-	    System.out.print("gec = " + gec + "\n");
-	    System.out.print("gce = " + gce + "\n");
-	    System.out.print("gcc = " + gcc + "\n");
-	    System.out.print("gce+gcc = " + (gce+gcc) + "\n");
-	    System.out.print("gee+gec = " + (gee+gec) + "\n");*/
+	    // add minimum conductance (gmin) between b,e and b,c
+	    gcc -= gmin;
+	    gee -= gmin;
 	    
 	    // stamps from page 302 of Pillage.  Node 0 is the base,
-	    // node 1 the collector, node 2 the emitter.  Also stamp
-	    // minimum conductance (gmin) between b,e and b,c
-	    sim.stampMatrix(nodes[0], nodes[0], -gee-gec-gce-gcc + gmin*2);
-	    sim.stampMatrix(nodes[0], nodes[1], gec+gcc - gmin);
-	    sim.stampMatrix(nodes[0], nodes[2], gee+gce - gmin);
-	    sim.stampMatrix(nodes[1], nodes[0], gce+gcc - gmin);
-	    sim.stampMatrix(nodes[1], nodes[1], -gcc + gmin);
+	    // node 1 the collector, node 2 the emitter.
+	    sim.stampMatrix(nodes[0], nodes[0], -gee-gec-gce-gcc);
+	    sim.stampMatrix(nodes[0], nodes[1], gec+gcc);
+	    sim.stampMatrix(nodes[0], nodes[2], gee+gce);
+	    sim.stampMatrix(nodes[1], nodes[0], gce+gcc);
+	    sim.stampMatrix(nodes[1], nodes[1], -gcc);
 	    sim.stampMatrix(nodes[1], nodes[2], -gce);
-	    sim.stampMatrix(nodes[2], nodes[0], gee+gec - gmin);
+	    sim.stampMatrix(nodes[2], nodes[0], gee+gec);
 	    sim.stampMatrix(nodes[2], nodes[1], -gec);
-	    sim.stampMatrix(nodes[2], nodes[2], -gee + gmin);
+	    sim.stampMatrix(nodes[2], nodes[2], -gee);
 
 	    // we are solving for v(k+1), not delta v, so we use formula
-	    // 10.5.13, multiplying J by v(k)
+	    // 10.5.13 (from Pillage), multiplying J by v(k)
+	    
 	    sim.stampRightSide(nodes[0], -ib - (gec+gcc)*vbc - (gee+gce)*vbe);
 	    sim.stampRightSide(nodes[1], -ic + gce*vbe + gcc*vbc);
 	    sim.stampRightSide(nodes[2], -ie + gee*vbe + gec*vbc);
 	}
+	
+	@Override String getScopeText(int x) {
+	    String t ="";
+	    switch (x) {
+	    case Scope.VAL_IB: t = "Ib"; break; 
+	    case Scope.VAL_IC: t = "Ic"; break;
+	    case Scope.VAL_IE: t = "Ie"; break;
+	    case Scope.VAL_VBE: t = "Vbe"; break;
+	    case Scope.VAL_VBC: t = "Vbc"; break;
+	    case Scope.VAL_VCE: t = "Vce"; break;
+	    case Scope.VAL_POWER: t = "P"; break;
+	    }
+	    return sim.LS("transistor") + ", " + t;
+	}
+	
 	void getInfo(String arr[]) {
-	    arr[0] = "transistor (" + ((pnp == -1) ? "PNP)" : "NPN)") + " beta=" +	showFormat.format(beta);
+	    arr[0] = sim.LS("transistor") + " (" + ((pnp == -1) ? "PNP)" : "NPN)") + " \u03b2=" + showFormat.format(beta);
 	    double vbc = volts[0]-volts[1];
 	    double vbe = volts[0]-volts[2];
 	    double vce = volts[1]-volts[2];
@@ -252,11 +270,13 @@ import com.google.gwt.i18n.client.NumberFormat;
 		arr[1] = vbe*pnp > .2 ? "saturation" : "reverse active";
 	    else
 		arr[1] = vbe*pnp > .2 ? "fwd active" : "cutoff";
+	    arr[1] = sim.LS(arr[1]);
 	    arr[2] = "Ic = " + getCurrentText(ic);
 	    arr[3] = "Ib = " + getCurrentText(ib);
 	    arr[4] = "Vbe = " + getVoltageText(vbe);
 	    arr[5] = "Vbc = " + getVoltageText(vbc);
 	    arr[6] = "Vce = " + getVoltageText(vce);
+	    arr[7] = "P = " + getUnitText(getPower(), "W");
 	}
 	
 	double getScopeValue(int x) {
@@ -267,15 +287,17 @@ import com.google.gwt.i18n.client.NumberFormat;
 	    case Scope.VAL_VBE: return volts[0]-volts[2];
 	    case Scope.VAL_VBC: return volts[0]-volts[1];
 	    case Scope.VAL_VCE: return volts[1]-volts[2];
+	    case Scope.VAL_POWER: return getPower(); 
 	    }
 	    return 0;
 	}
 	
-	String getScopeUnits(int x) {
+	int getScopeUnits(int x) {
 	    switch (x) {
 	    case Scope.VAL_IB: case Scope.VAL_IC:
-	    case Scope.VAL_IE: return "A";
-	    default: return "V";
+	    case Scope.VAL_IE: return Scope.UNITS_A;
+	    case Scope.VAL_POWER: return Scope.UNITS_W;
+	    default: return Scope.UNITS_V;
 	    }
 	}
 	public EditInfo getEditInfo(int n) {
@@ -302,5 +324,25 @@ import com.google.gwt.i18n.client.NumberFormat;
 		setPoints();
 	    }
 	}
+	
+	void setBeta(double b) {
+	    beta = b;
+	    setup();
+	}
+	
+        void stepFinished() {
+            // stop for huge currents that make simulator act weird
+            if (Math.abs(ic) > 1e12 || Math.abs(ib) > 1e12)
+                sim.stop("max current exceeded", this);
+        }
+
 	boolean canViewInScope() { return true; }
+	
+	double getCurrentIntoNode(int n) {
+	    if (n==0)
+		return -ib;
+	    if (n==1)
+		return -ic;
+	    return -ie;
+	}
     }
